@@ -1,8 +1,20 @@
 #include <glove/pair.hpp>
 
+#include <stdexcept>
+
 GlovePair::GlovePair(Glove leftGlove, Glove rightGlove)
     : leftGlove(leftGlove),
       rightGlove(rightGlove) {
+    const bool validRoles =
+        (leftGlove.getRole() == GloveRole::Dominant &&
+         rightGlove.getRole() == GloveRole::Supplementary) ||
+        (leftGlove.getRole() == GloveRole::Supplementary &&
+         rightGlove.getRole() == GloveRole::Dominant);
+
+    if (!validRoles) {
+        throw std::invalid_argument(
+            "GlovePair requires one Dominant and one Supplementary glove");
+    }
 }
 
 std::array<bool, FINGER_COUNT> GlovePair::getLeftState() const {

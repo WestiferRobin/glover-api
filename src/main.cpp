@@ -22,18 +22,10 @@ GlovePair initializeGloves() {
     Glove rightGlove(GloveRole::Dominant);
     Glove leftGlove(GloveRole::Supplementary);
 
-    leftGlove.setState({
-        true, false, true, false, true
-    });
-
-    rightGlove.setState({
-        false, true, false, true, false
-    });
-
     return GlovePair(leftGlove, rightGlove);
 }
 
-int main() {
+void exampleCase() {
     GlovePair gloves = initializeGloves();
 
     // "I"
@@ -69,5 +61,32 @@ int main() {
 
     printState(gloves.getState());
 
+    // "that" (asymmetric ordering example)
+    gloves.setLeftState({
+        true, false, true, false, false
+    });
+
+    gloves.setRightState({
+        false, false, false, true, false
+    });
+
+    printState(gloves.getState());
+
+    // " " (space)
+    gloves.setLeftState({
+        true, true, true, true, true
+    });
+
+    gloves.setRightState({
+        true, true, true, true, true
+    });
+
+    printState(gloves.getState());
+}
+
+int main() {
+    exampleCase();
+
     return 0;
 }
+

@@ -27,5 +27,5 @@ $(TARGET): $(SOURCES) $(HEADERS) Makefile
 clean:
 	rm -f $(TARGET)
 
-run: clean all
+run: all
 	./$(TARGET)
