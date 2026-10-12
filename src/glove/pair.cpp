@@ -1,4 +1,3 @@
-
 #include <glove/pair.hpp>
 
 #include <stdexcept>

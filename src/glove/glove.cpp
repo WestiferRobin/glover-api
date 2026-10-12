@@ -1,10 +1,10 @@
-
 #include <glove/glove.hpp>
 
 #include <stdexcept>
 
 Glove::Glove(Hand hand, GloveRole role)
-    : role(role), hand(hand) {
+    : role(role),
+      hand(hand) {
 
     if (hand != Hand::Left && hand != Hand::Right) {
         throw std::invalid_argument("Invalid hand");

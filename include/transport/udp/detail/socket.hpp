@@ -1,14 +1,12 @@
 #ifndef GLOVER_UDP_SOCKET_HPP
 #define GLOVER_UDP_SOCKET_HPP
-// This existing owner only closes a POSIX descriptor; it has no TCP behavior.
-#include <transport/detail/socket.hpp>
+
 #include <arpa/inet.h>
 #include <cstdint>
 #include <stdexcept>
 #include <string>
 
 namespace udp_detail {
-using Socket = tcp_detail::Socket;
 inline sockaddr_in endpoint(const std::string& address, int port) {
     if (port < 1 || port > 65535) {
         throw std::invalid_argument("UDP port must be from 1 to 65535");
@@ -23,4 +21,5 @@ inline sockaddr_in endpoint(const std::string& address, int port) {
     return result;
 }
 }
+
 #endif

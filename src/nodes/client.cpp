@@ -7,9 +7,13 @@
 Client::Client(const std::string& bindAddress, std::uint16_t port,
                NodeTransport transport, std::chrono::milliseconds timeout)
     : udpTimeout(timeout) {
-    if (transport == NodeTransport::Tcp) server.emplace(bindAddress, port);
-    else if (transport == NodeTransport::Udp) udpServer.emplace(bindAddress, port);
-    else throw std::invalid_argument("Invalid node transport");
+    if (transport == NodeTransport::Tcp) {
+        server.emplace(bindAddress, port);
+    } else if (transport == NodeTransport::Udp) {
+        udpServer.emplace(bindAddress, port);
+    } else {
+        throw std::invalid_argument("Invalid node transport");
+    }
 }
 
 void Client::runUdp() {
@@ -20,7 +24,8 @@ void Client::runUdp() {
             const auto sample = parseUdpSample(datagram);
             const auto state = parseState(sample.payload);
             if (seen[sample.index]) {
-                throw std::invalid_argument("Duplicate UDP sample index: " + std::to_string(sample.index));
+                throw std::invalid_argument(
+                    "Duplicate UDP sample index: " + std::to_string(sample.index));
             }
             states[sample.index] = state;
             seen[sample.index] = true;
@@ -29,11 +34,12 @@ void Client::runUdp() {
         throw std::runtime_error(std::string(error.what()) + missingUdpSamples(seen));
     }
     // Publish only a complete valid session, in fixture order regardless of arrival order.
-    for (const auto& state : states) std::cout << serializeState(state) << '\n';
+    for (const auto& state : states) {
+        std::cout << serializeState(state) << '\n';
+    }
 }
 
 void Client::run() {
-    if (bleMode) { runBle(); return; }
     if (udpServer) {
         runUdp();
         return;

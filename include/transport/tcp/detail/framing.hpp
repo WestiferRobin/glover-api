@@ -8,6 +8,7 @@
 namespace tcp_detail {
 class LineFramer {
     std::string pending;
+
 public:
     void consume(std::string_view bytes,
                  const std::function<void(const std::string&)>& onMessage) {
@@ -23,6 +24,7 @@ public:
             }
         }
     }
+
     void finish() const {
         if (!pending.empty()) {
             throw std::runtime_error("TCP EOF with incomplete message (missing LF)");
@@ -30,4 +32,5 @@ public:
     }
 };
 }
+
 #endif

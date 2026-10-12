@@ -9,11 +9,18 @@
 #include <system_error>
 
 TcpServer::TcpServer(const std::string& address, std::uint16_t port)
-    : address(address), port(port) {}
+    : address(address),
+      port(port) {
+    if (address.find('\0') != std::string::npos) {
+        throw std::invalid_argument("Invalid TCP IPv4 address: embedded null character");
+    }
+}
 
 void TcpServer::run(const std::function<void(const std::string&)>& onMessage) {
-    if (!onMessage) throw std::invalid_argument("TCP message callback is empty");
-    tcp_detail::Socket listener(::socket(AF_INET, SOCK_STREAM, 0));
+    if (!onMessage) {
+        throw std::invalid_argument("TCP message callback is empty");
+    }
+    transport_detail::Socket listener(::socket(AF_INET, SOCK_STREAM, 0));
     if (listener.get() < 0) {
         throw std::system_error(errno, std::generic_category(), "TCP socket creation");
     }
@@ -41,13 +48,15 @@ void TcpServer::run(const std::function<void(const std::string&)>& onMessage) {
     if (accepted < 0) {
         throw std::system_error(errno, std::generic_category(), "TCP accept");
     }
-    tcp_detail::Socket connection(accepted);
+    transport_detail::Socket connection(accepted);
     tcp_detail::LineFramer framer;
     char buffer[1024];
     for (;;) {
         const ssize_t count = ::recv(connection.get(), buffer, sizeof(buffer), 0);
         if (count < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR) {
+                continue;
+            }
             throw std::system_error(errno, std::generic_category(), "TCP receive");
         }
         if (count == 0) {

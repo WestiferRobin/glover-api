@@ -15,17 +15,34 @@ GlovePair makePair(Hand hand) {
     return hand == Hand::Left ? GlovePair(local, remote)
                               : GlovePair(remote, local);
 }
+
+void combineStates(GlovePair& gloves, Hand localHand,
+                   const MockSample& local, const HandState& remote) {
+    if (localHand == Hand::Left) {
+        gloves.setLeftState(local.left);
+        gloves.setRightState(remote.state);
+    } else {
+        gloves.setLeftState(remote.state);
+        gloves.setRightState(local.right);
+    }
+}
 }
 
-Primary::Primary(Hand hand) : gloves(makePair(hand)), localHand(hand) {}
+Primary::Primary(Hand hand)
+    : gloves(makePair(hand)),
+      localHand(hand) {}
 
 Primary::Primary(Hand hand, const std::string& peer, std::uint16_t port)
-    : gloves(makePair(hand)), localHand(hand), connection(std::in_place, peer, port) {}
+    : gloves(makePair(hand)),
+      localHand(hand),
+      connection(std::in_place, peer, port) {}
 
 Primary::Primary(Hand hand, const std::string& bindAddress, std::uint16_t listenPort,
                  const std::string& peer, std::uint16_t port,
                  NodeTransport transport, std::chrono::milliseconds timeout)
-    : gloves(makePair(hand)), localHand(hand), udpTimeout(timeout) {
+    : gloves(makePair(hand)),
+      localHand(hand),
+      udpTimeout(timeout) {
     if (transport == NodeTransport::Tcp) {
         upstream.emplace(bindAddress, listenPort);
         connection.emplace(peer, port);
@@ -33,7 +50,9 @@ Primary::Primary(Hand hand, const std::string& bindAddress, std::uint16_t listen
         udpUpstream.emplace(bindAddress, listenPort);
         udpPeer = peer;
         udpPort = port;
-    } else throw std::invalid_argument("Invalid node transport");
+    } else {
+        throw std::invalid_argument("Invalid node transport");
+    }
 }
 
 void Primary::runUdp() {
@@ -47,16 +66,11 @@ void Primary::runUdp() {
                 throw std::invalid_argument("Secondary must represent the opposite physical hand");
             }
             if (seen[sample.index]) {
-                throw std::invalid_argument("Duplicate UDP sample index: " + std::to_string(sample.index));
+                throw std::invalid_argument(
+                    "Duplicate UDP sample index: " + std::to_string(sample.index));
             }
             const auto& local = mockSamples().at(sample.index);
-            if (localHand == Hand::Left) {
-                gloves.setLeftState(local.left);
-                gloves.setRightState(remote.state);
-            } else {
-                gloves.setLeftState(remote.state);
-                gloves.setRightState(local.right);
-            }
+            combineStates(gloves, localHand, local, remote);
             sender.send(serializeUdpSample(sample.index, serializeState(gloves.getState())));
             seen[sample.index] = true;
         });
@@ -66,32 +80,28 @@ void Primary::runUdp() {
 }
 
 void Primary::run() {
-    if (bleMode) { runBle(); return; }
     if (udpUpstream) {
         runUdp();
         return;
     }
     try {
-        if (connection) connection->connect();
+        if (connection) {
+            connection->connect();
+        }
         if (upstream) {
             std::size_t accepted = 0;
             upstream->run([&](const std::string& payload) {
                 const auto remote = parseHandState(payload);
                 if (remote.hand == localHand) {
-                    throw std::invalid_argument("Secondary must represent the opposite physical hand");
+                    throw std::invalid_argument(
+                        "Secondary must represent the opposite physical hand");
                 }
                 if (accepted == mockSamples().size()) {
                     throw std::runtime_error("Unexpected Secondary sample after five samples");
                 }
                 // Deterministic fixture pairing, not synchronized sensor sampling.
                 const auto& local = mockSamples()[accepted];
-                if (localHand == Hand::Left) {
-                    gloves.setLeftState(local.left);
-                    gloves.setRightState(remote.state);
-                } else {
-                    gloves.setLeftState(remote.state);
-                    gloves.setRightState(local.right);
-                }
+                combineStates(gloves, localHand, local, remote);
                 connection->send(serializeState(gloves.getState()) + '\n');
                 ++accepted;
             });
@@ -102,13 +112,20 @@ void Primary::run() {
             for (const auto& sample : mockSamples()) {
                 gloves.setLeftState(sample.left);
                 gloves.setRightState(sample.right);
-                if (connection) connection->send(serializeState(gloves.getState()) + '\n');
-                else printMockState(std::cout, gloves.getState());
+                if (connection) {
+                    connection->send(serializeState(gloves.getState()) + '\n');
+                } else {
+                    printMockState(std::cout, gloves.getState());
+                }
             }
         }
-        if (connection) connection->disconnect();
+        if (connection) {
+            connection->disconnect();
+        }
     } catch (...) {
-        if (connection) connection->disconnect();
+        if (connection) {
+            connection->disconnect();
+        }
         throw;
     }
 }

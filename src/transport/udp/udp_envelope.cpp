@@ -22,7 +22,9 @@ std::string missingUdpSamples(const std::array<bool, UDP_SAMPLE_COUNT>& seen) {
     std::string result;
     for (std::size_t i = 0; i < seen.size(); ++i) {
         if (!seen[i]) {
-            if (!result.empty()) result += ',';
+            if (!result.empty()) {
+                result += ',';
+            }
             result += std::to_string(i);
         }
     }

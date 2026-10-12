@@ -1,5 +1,6 @@
 #ifndef GLOVER_UDP_ENVELOPE_HPP
 #define GLOVER_UDP_ENVELOPE_HPP
+
 #include <array>
 #include <cstddef>
 #include <string>
@@ -15,4 +16,5 @@ struct UdpSample {
 std::string serializeUdpSample(std::size_t index, std::string_view payload);
 UdpSample parseUdpSample(std::string_view datagram);
 std::string missingUdpSamples(const std::array<bool, UDP_SAMPLE_COUNT>& seen);
+
 #endif

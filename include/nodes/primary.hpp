@@ -1,5 +1,6 @@
 #ifndef PRIMARY_HPP
 #define PRIMARY_HPP
+
 #include "node.hpp"
 #include "network.hpp"
 #include <glove/pair.hpp>
@@ -19,11 +20,8 @@ private:
     std::uint16_t udpPort = 0;
     std::chrono::milliseconds udpTimeout = UDP_SESSION_TIMEOUT;
     void runUdp();
-    std::optional<PrimaryLinks> bleMode;
-    void runBle();
 
 public:
-    Primary(Hand hand, const PrimaryLinks& links);
     explicit Primary(Hand hand = Hand::Right);
     Primary(Hand hand, const std::string& peer, std::uint16_t port);
     Primary(Hand hand, const std::string& bindAddress, std::uint16_t listenPort,

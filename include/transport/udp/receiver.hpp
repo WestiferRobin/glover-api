@@ -1,5 +1,6 @@
 #ifndef GLOVER_UDP_RECEIVER_HPP
 #define GLOVER_UDP_RECEIVER_HPP
+
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -7,8 +8,9 @@
 #include <string>
 
 class UdpReceiver {
-    std::uint32_t localAddress;
-    std::uint16_t port;
+    std::uint32_t localAddressNetworkOrder;
+    std::uint16_t portNetworkOrder;
+
 public:
     static constexpr std::size_t MAX_MESSAGE_BYTES = 4096;
     UdpReceiver(const std::string& address, int port);
@@ -23,4 +25,5 @@ public:
     void run(std::size_t count, std::chrono::milliseconds timeout,
              const std::function<void(const std::string&)>& onMessage);
 };
+
 #endif

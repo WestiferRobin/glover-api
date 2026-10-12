@@ -8,15 +8,22 @@
 #include <system_error>
 
 TcpClient::TcpClient(const std::string& address, std::uint16_t port)
-    : address(address), port(port) {}
+    : address(address),
+      port(port) {
+    if (address.find('\0') != std::string::npos) {
+        throw std::invalid_argument("Invalid TCP IPv4 address: embedded null character");
+    }
+}
 
-TcpClient::~TcpClient() { disconnect(); }
+TcpClient::~TcpClient() {
+    disconnect();
+}
 
 void TcpClient::connect() {
     if (socketFd >= 0) {
         throw std::logic_error("TCP client already connected");
     }
-    tcp_detail::Socket socket(::socket(AF_INET, SOCK_STREAM, 0));
+    transport_detail::Socket socket(::socket(AF_INET, SOCK_STREAM, 0));
     if (socket.get() < 0) {
         throw std::system_error(errno, std::generic_category(), "TCP socket creation");
     }
@@ -57,7 +64,9 @@ void TcpClient::send(const std::string& message) {
                                     message.size() - totalSent, flags);
         if (sent < 0) {
             const int error = errno;
-            if (error == EINTR) continue;
+            if (error == EINTR) {
+                continue;
+            }
             disconnect();
             throw std::system_error(error, std::generic_category(), "TCP send");
         }

@@ -8,7 +8,12 @@
 
 // Internal application interface; parsing constructs nodes but never runs them.
 namespace cli {
-enum class Action { Help, Mock, Node, UnknownCommand };
+enum class Action {
+    Help,
+    Mock,
+    Node,
+    UnknownCommand
+};
 
 struct ParsedCommand {
     Action action;
