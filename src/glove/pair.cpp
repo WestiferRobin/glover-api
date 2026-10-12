@@ -1,3 +1,4 @@
+
 #include <glove/pair.hpp>
 
 #include <stdexcept>
@@ -5,44 +6,36 @@
 GlovePair::GlovePair(Glove leftGlove, Glove rightGlove)
     : leftGlove(leftGlove),
       rightGlove(rightGlove) {
-    const bool validRoles =
-        (leftGlove.getRole() == GloveRole::Dominant &&
-         rightGlove.getRole() == GloveRole::Supplementary) ||
-        (leftGlove.getRole() == GloveRole::Supplementary &&
-         rightGlove.getRole() == GloveRole::Dominant);
 
-    if (!validRoles) {
+    if (leftGlove.getHand() != Hand::Left ||
+        rightGlove.getHand() != Hand::Right) {
         throw std::invalid_argument(
-            "GlovePair requires one Dominant and one Supplementary glove");
+            "GlovePair requires left and right gloves");
+    }
+
+    if (leftGlove.getRole() == rightGlove.getRole()) {
+        throw std::invalid_argument(
+            "GlovePair requires one Primary and one Secondary glove");
     }
 }
 
 std::array<bool, FINGER_COUNT> GlovePair::getLeftState() const {
-    std::array<bool, FINGER_COUNT> state{};
-
-    for (std::size_t i = 0; i < FINGER_COUNT; ++i) {
-        state[i] = leftGlove.getFinger(i);
-    }
-
-    return state;
+    return leftGlove.getState();
 }
 
 std::array<bool, FINGER_COUNT> GlovePair::getRightState() const {
-    std::array<bool, FINGER_COUNT> state{};
-
-    for (std::size_t i = 0; i < FINGER_COUNT; ++i) {
-        state[i] = rightGlove.getFinger(i);
-    }
-
-    return state;
+    return rightGlove.getState();
 }
 
 std::array<bool, PAIR_FINGER_COUNT> GlovePair::getState() const {
     std::array<bool, PAIR_FINGER_COUNT> state{};
 
+    const auto left = leftGlove.getState();
+    const auto right = rightGlove.getState();
+
     for (std::size_t i = 0; i < FINGER_COUNT; ++i) {
-        state[i] = leftGlove.getFinger(i);
-        state[i + FINGER_COUNT] = rightGlove.getFinger(i);
+        state[i] = left[i];
+        state[i + FINGER_COUNT] = right[i];
     }
 
     return state;

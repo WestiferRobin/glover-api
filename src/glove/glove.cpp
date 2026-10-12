@@ -1,35 +1,54 @@
+
 #include <glove/glove.hpp>
 
 #include <stdexcept>
 
-Glove::Glove(GloveRole role) : role(role) {
-    for (std::size_t i = 0; i < FINGER_COUNT; ++i) {
-        fingers[i] = false;
+Glove::Glove(Hand hand, GloveRole role)
+    : role(role), hand(hand) {
+
+    if (hand != Hand::Left && hand != Hand::Right) {
+        throw std::invalid_argument("Invalid hand");
+    }
+
+    if (role != GloveRole::Primary &&
+        role != GloveRole::Secondary) {
+        throw std::invalid_argument("Invalid glove role");
     }
 }
 
-void Glove::setFinger(std::size_t finger, bool value) {
-    if (finger >= FINGER_COUNT) {
+std::size_t Glove::fingerIndex(Finger finger) const {
+    const auto index = static_cast<std::size_t>(finger);
+
+    if (index >= FINGER_COUNT) {
         throw std::out_of_range("Finger index out of range");
     }
 
-    fingers[finger] = value;
+    return hand == Hand::Left
+        ? index
+        : FINGER_COUNT - 1 - index;
 }
 
-bool Glove::getFinger(std::size_t finger) const {
-    if (finger >= FINGER_COUNT) {
-        throw std::out_of_range("Finger index out of range");
-    }
-
-    return fingers[finger];
+void Glove::setFinger(Finger finger, bool value) {
+    fingers[fingerIndex(finger)] = value;
 }
 
-void Glove::setState(const std::array<bool, FINGER_COUNT>& state) {
-    for (std::size_t i = 0; i < FINGER_COUNT; ++i) {
-        fingers[i] = state[i];
-    }
+bool Glove::getFinger(Finger finger) const {
+    return fingers[fingerIndex(finger)];
+}
+
+void Glove::setState(
+    const std::array<bool, FINGER_COUNT>& state) {
+    fingers = state;
+}
+
+std::array<bool, FINGER_COUNT> Glove::getState() const {
+    return fingers;
 }
 
 GloveRole Glove::getRole() const {
     return role;
+}
+
+Hand Glove::getHand() const {
+    return hand;
 }

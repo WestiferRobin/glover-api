@@ -13,8 +13,8 @@ private:
 
 public:
     // Owns copies; later changes to the original gloves do not update this pair.
-    // Requires one Dominant and one Supplementary glove (either hand may lead).
-    // Throws std::invalid_argument for any other role combination.
+    // Requires Left then Right, with one Primary and one Secondary role.
+    // Throws std::invalid_argument for any other hand or role combination.
     GlovePair(Glove leftGlove, Glove rightGlove);
 
     // Return value snapshots, not detected chords or synchronized sensor samples.

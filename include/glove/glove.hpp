@@ -6,33 +6,43 @@
 
 constexpr std::size_t FINGER_COUNT = 5;
 
-// Communication responsibility, independent of physical hand identity.
 enum class GloveRole {
-    Dominant,
-    Supplementary
+    Primary,
+    Secondary
 };
 
-// One physical glove with five logical states: false = inactive, true = active.
-// Index order depends on the hand supplied by the caller:
-// left: pinky, ring, middle, index, thumb; right: thumb, index, middle, ring, pinky.
-// This logical representation is not a wireless packet format.
+enum class Hand {
+    Left,
+    Right
+};
+
+enum class Finger : std::size_t {
+    Pinky = 0,
+    Ring = 1,
+    Middle = 2,
+    Index = 3,
+    Thumb = 4
+};
+
 class Glove {
 private:
-    bool fingers[FINGER_COUNT];
+    std::array<bool, FINGER_COUNT> fingers{};
     GloveRole role;
+    Hand hand;
+
+    std::size_t fingerIndex(Finger finger) const;
 
 public:
-    // Initializes all fingers inactive.
-    Glove(GloveRole role);
+    Glove(Hand hand, GloveRole role);
 
-    // Finger indexes are 0..4; invalid indexes throw std::out_of_range.
-    void setFinger(std::size_t finger, bool value);
-    // Returns the current logical value, not a detected chord.
-    bool getFinger(std::size_t finger) const;
+    void setFinger(Finger finger, bool value);
+    bool getFinger(Finger finger) const;
 
     void setState(const std::array<bool, FINGER_COUNT>& state);
+    std::array<bool, FINGER_COUNT> getState() const;
 
     GloveRole getRole() const;
+    Hand getHand() const;
 };
 
 #endif // GLOVE_HPP
