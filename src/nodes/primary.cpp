@@ -79,15 +79,17 @@ void Primary::runUdp() {
     }
 }
 
-void Primary::run() {
-    if (udpUpstream) {
-        runUdp();
-        return;
+void Primary::runLocal() {
+    for (const auto& sample : mockSamples()) {
+        gloves.setLeftState(sample.left);
+        gloves.setRightState(sample.right);
+        printMockState(std::cout, gloves.getState());
     }
+}
+
+void Primary::runTcp() {
     try {
-        if (connection) {
-            connection->connect();
-        }
+        connection->connect();
         if (upstream) {
             std::size_t accepted = 0;
             upstream->run([&](const std::string& payload) {
@@ -112,20 +114,22 @@ void Primary::run() {
             for (const auto& sample : mockSamples()) {
                 gloves.setLeftState(sample.left);
                 gloves.setRightState(sample.right);
-                if (connection) {
-                    connection->send(serializeState(gloves.getState()) + '\n');
-                } else {
-                    printMockState(std::cout, gloves.getState());
-                }
+                connection->send(serializeState(gloves.getState()) + '\n');
             }
         }
-        if (connection) {
-            connection->disconnect();
-        }
+        connection->disconnect();
     } catch (...) {
-        if (connection) {
-            connection->disconnect();
-        }
+        connection->disconnect();
         throw;
+    }
+}
+
+void Primary::run() {
+    if (udpUpstream) {
+        runUdp();
+    } else if (connection) {
+        runTcp();
+    } else {
+        runLocal();
     }
 }

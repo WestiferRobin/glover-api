@@ -6,6 +6,8 @@
 #include <glove/glove.hpp>
 #include <transport/tcp/client.hpp>
 #include <optional>
+#include <cstdint>
+#include <string>
 
 class Secondary : public Node {
     Glove glove;
@@ -13,6 +15,9 @@ class Secondary : public Node {
     bool udpMode = false;
     std::string udpPeer;
     std::uint16_t udpPort = 0;
+
+    void runTcp();
+    void runUdp();
 
 public:
     Secondary();

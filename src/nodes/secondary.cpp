@@ -23,21 +23,17 @@ Secondary::Secondary(Hand hand, const std::string& peer, std::uint16_t port,
     }
 }
 
-void Secondary::run() {
-    if (udpMode) {
-        UdpSender sender(udpPeer, udpPort);
-        const auto& samples = mockSamples();
-        for (std::size_t i = 0; i < samples.size(); ++i) {
-            glove.setState(glove.getHand() == Hand::Left ? samples[i].left : samples[i].right);
-            sender.send(
-                serializeUdpSample(i, serializeHandState({glove.getHand(), glove.getState()})));
-        }
-        return;
+void Secondary::runUdp() {
+    UdpSender sender(udpPeer, udpPort);
+    const auto& samples = mockSamples();
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        glove.setState(glove.getHand() == Hand::Left ? samples[i].left : samples[i].right);
+        sender.send(
+            serializeUdpSample(i, serializeHandState({glove.getHand(), glove.getState()})));
     }
-    if (!connection) {
-        std::cout << "Secondary node started.\n";
-        return;
-    }
+}
+
+void Secondary::runTcp() {
     try {
         connection->connect();
         for (const auto& sample : mockSamples()) {
@@ -48,5 +44,15 @@ void Secondary::run() {
     } catch (...) {
         connection->disconnect();
         throw;
+    }
+}
+
+void Secondary::run() {
+    if (udpMode) {
+        runUdp();
+    } else if (connection) {
+        runTcp();
+    } else {
+        std::cout << "Secondary node started.\n";
     }
 }

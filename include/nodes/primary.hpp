@@ -7,6 +7,9 @@
 #include <transport/tcp/client.hpp>
 #include <transport/tcp/server.hpp>
 #include <optional>
+#include <cstdint>
+#include <string>
+#include <chrono>
 #include <transport/udp/receiver.hpp>
 
 class Primary : public Node {
@@ -19,6 +22,8 @@ private:
     std::string udpPeer;
     std::uint16_t udpPort = 0;
     std::chrono::milliseconds udpTimeout = UDP_SESSION_TIMEOUT;
+    void runLocal();
+    void runTcp();
     void runUdp();
 
 public:

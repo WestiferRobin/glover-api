@@ -3,11 +3,12 @@
 
 #include <chrono>
 
-// Node configuration only; transport implementations have no shared base class.
 enum class NodeTransport {
     Tcp,
     Udp
 };
+
+// Default total receive timeout for a UDP node session.
 inline constexpr std::chrono::milliseconds UDP_SESSION_TIMEOUT{5000};
 
-#endif
+#endif // GLOVER_NODE_NETWORK_HPP

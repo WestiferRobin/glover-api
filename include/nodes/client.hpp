@@ -5,6 +5,9 @@
 #include "network.hpp"
 #include <transport/tcp/server.hpp>
 #include <optional>
+#include <cstdint>
+#include <string>
+#include <chrono>
 #include <transport/udp/receiver.hpp>
 
 class Client : public Node {
