@@ -204,12 +204,12 @@ class WorkflowTests(NetworkTest):
         self.tcp_failure(b"x" * 4097, b"exceeds 4096")
 
     def test_tcp_primary_client_unavailable(self):
-        with socket.socket() as reserved:
-            reserved.bind((HOST, 0))
-            primary, _ = self.primary("tcp", reserved.getsockname()[1])
-            primary.wait(expected=1)
-            self.assertIn(b"TCP connect", primary.stderr)
-            self.assertEqual(primary.stdout, b"")
+        # Release before connecting: a held, non-listening socket can stall SYNs.
+        # Port reuse is still possible; require refusal rather than retrying.
+        primary, _ = self.primary("tcp", free_port())
+        primary.wait(expected=1)
+        self.assertIn(b"TCP connect: Connection refused", primary.stderr)
+        self.assertEqual(primary.stdout, b"")
 
     def test_tcp_standalone_client_short_eof_is_success(self):
         client, port = self.client("tcp")

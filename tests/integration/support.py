@@ -111,69 +111,11 @@ class Process:
         return (f"command={self.command!r}\npid={self.child.pid} exit={self.child.poll()}\n"
                 f"stdout={self.stdout!r}\nstderr={self.stderr!r}")
 
-    def tcp_timeout_target(self):
-        if self.command[:2] == [str(DRIVER), "tcp-send"]:
-            return True
-        if self.command[:2] != [str(GLOVE), "primary"]:
-            return False
-        arguments = self.command[2:]
-        if len(arguments) % 2:
-            return False
-        options = dict(zip(arguments[::2], arguments[1::2]))
-        return (options.get("--transport") == "tcp"
-                and "--bind" not in options and "--listen-port" not in options)
-
-    def tcp_timeout_diagnostics(self):
-        pid = str(self.child.pid)
-        sections = ["=== GLOVER TCP TIMEOUT DIAGNOSTICS ==="]
-        commands = (
-            ("Process State (ps)", ["ps", "-p", pid, "-o", "pid,ppid,stat,etime,command"]),
-            ("TCP Sockets (lsof)", ["lsof", "-nP", "-a", "-p", pid, "-iTCP"]),
-            ("Process Sample (sample)", ["sample", pid, "1", "1", "-file", "/dev/stdout"]),
-        )
-        for title, command in commands:
-            sections.append(f"--- {title} ---\nCommand: {command!r}")
-            try:
-                # Do not inspect a PID after our owned child has been reaped.
-                state = self.child.poll()
-                if state is not None:
-                    sections.append(f"Not run: child exited during collection (exit={state})")
-                    continue
-                tool = shutil.which(command[0])
-                if tool is None:
-                    sections.append(f"Not run: tool unavailable: {command[0]}")
-                    continue
-                command = [tool, *command[1:]]
-                sections.append(f"Resolved command: {command!r}")
-                result = subprocess.run(command, capture_output=True, timeout=3)
-                sections.append(f"Exit status: {result.returncode}\n"
-                                f"stdout:\n{result.stdout.decode(errors='replace')}\n"
-                                f"stderr:\n{result.stderr.decode(errors='replace')}")
-            except subprocess.TimeoutExpired as error:
-                # run() kills and reaps its diagnostic child on timeout.
-                sections.append(f"Diagnostic timed out after {error.timeout}s; exit status unavailable\n"
-                                f"Partial stdout:\n{(error.stdout or b'').decode(errors='replace')}\n"
-                                f"Partial stderr:\n{(error.stderr or b'').decode(errors='replace')}")
-            except Exception as error:
-                sections.append(f"Diagnostic execution error: {type(error).__name__}: {error}; "
-                                "exit status unavailable")
-        sections.append("=== END DIAGNOSTICS ===")
-        return "\n".join(sections)
-
     def wait(self, expected=0, timeout=PROCESS_TIMEOUT):
         try:
             actual = self.child.wait(timeout=timeout)
         except subprocess.TimeoutExpired as error:
-            message = f"Expected exit {expected} within {timeout}s\n{self.diagnostic()}"
-            if expected == 1 and self.tcp_timeout_target():
-                # Capture before unwinding the test's destination reservation.
-                # The deadline already failed, even if the child exits meanwhile.
-                try:
-                    message += "\n" + self.tcp_timeout_diagnostics()
-                except Exception as diagnostic_error:
-                    message += (f"\nTCP diagnostic collection failed: "
-                                f"{type(diagnostic_error).__name__}: {diagnostic_error}")
-            raise AssertionError(message) from error
+            raise AssertionError(f"Expected exit {expected} within {timeout}s\n{self.diagnostic()}") from error
         if actual != expected:
             raise AssertionError(f"Expected exit {expected}, actual {actual}\n{self.diagnostic()}")
         return self

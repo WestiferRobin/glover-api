@@ -106,6 +106,12 @@ notification. Cleanup terminates/reaps only owned children; tests also verify
 socket release and actual port reuse. Normal TCP `TIME_WAIT` is not an orphaned
 listener.
 
+The two TCP connection-refusal tests release a discovered loopback port before
+starting the sender and require `TCP connect: Connection refused`, exit 1, and
+empty stdout. Holding a bound, non-listening socket can instead leave a connect
+pending until the OS times out. The released-port reuse race remains; these
+tests do not retry or accept connection timeouts as refusal.
+
 ### Adding a unit test
 
 Add a named case inside the appropriate existing suite function, for example
@@ -195,9 +201,12 @@ Runner/action availability was checked against GitHub's
 [supported images](https://github.com/actions/runner-images#available-images) and
 [checkout release](https://github.com/actions/checkout/releases/tag/v7.0.1).
 Local YAML/structure/shell validation is separate from executing GitHub Actions.
-Remote CI has not yet been verified: after review, commit and push the complete
-testing milestone, then inspect the first workflow run. Reproduce failures
-locally with `make test` and compare the logged tool versions.
+Hosted [diagnostic run 43518387280](https://github.com/WestiferRobin/glover-api/actions/runs/43518387280)
+tested commit `007a710` on macOS 15.8.2 arm64: 463 unit cases passed, while
+104 of 106 integration tests passed. Both TCP refusal fixtures left their
+senders in `SYN_SENT`, blocked in `connect()`. The corrected fixtures and removal
+of investigation-specific stack sampling still require a new hosted run after
+review, commit, and push. General process failure reporting and cleanup remain.
 
 ## Prerequisites and build
 
@@ -874,8 +883,9 @@ is recorded under [automated testing](#commands-and-requirements).
   confirmed Make failure propagation and aggregate early stop, then were removed.
 - Workflow YAML, duplicate keys, expected structure, permissions, triggers,
   action/runner selection, and shell syntax were checked locally. The tool-check
-  step ran locally. GitHub-hosted execution has **not** occurred; verify the first
-  remote run after committing and pushing the complete milestone.
+  step ran locally. GitHub-hosted execution had not occurred at that milestone;
+  see [continuous integration](#continuous-integration) for the subsequent
+  diagnostic run and pending verification of the correction.
 
 These automated results supplement the historical manual records; they do not
 claim new physical-glove, ESP32, recognition, keyboard, Linux, or Windows results.

@@ -54,12 +54,11 @@ class TcpTests(NetworkTest):
         self.assertIn(b"exceeds 4096", server.stderr)
 
     def test_connection_refused(self):
-        # Hold the port without listening: it cannot be stolen between selection and connect.
-        with socket.socket() as reserved:
-            reserved.bind((HOST, 0))
-            client = self.driver("tcp-send", reserved.getsockname()[1], data=b"x\n").wait(expected=1)
-            self.assertEqual(client.stdout, b"")
-            self.assertIn(b"TCP connect", client.stderr)
+        # Release before connecting: a held, non-listening socket can stall SYNs.
+        # Port reuse is still possible; require refusal rather than retrying.
+        client = self.driver("tcp-send", free_port(), data=b"x\n").wait(expected=1)
+        self.assertEqual(client.stdout, b"")
+        self.assertIn(b"TCP connect: Connection refused", client.stderr)
 
     def test_occupied_listener(self):
         with socket.socket() as occupied:
