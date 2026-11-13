@@ -1,6 +1,6 @@
 CXX = c++
-CPPFLAGS += -Iinclude
-CXXFLAGS += -std=c++20 -Wall -Wextra -Wpedantic
+CPPFLAGS += -Iinclude -Ithird_party/cpp-httplib -Ithird_party
+CXXFLAGS += -std=c++20 -Wall -Wextra -Wpedantic -pthread
 
 ifeq ($(shell uname -s),Darwin)
 # Use the SDK belonging to the selected Apple developer tools.
@@ -9,7 +9,8 @@ endif
 
 TARGET = build/glove
 
-SOURCES = src/main.cpp \
+SOURCES = src/codec/glove_json.cpp \
+          src/main.cpp \
           src/mock.cpp \
           src/cli/parser.cpp \
           src/glove/glove.cpp \
@@ -21,10 +22,14 @@ SOURCES = src/main.cpp \
           src/transport/udp/udp_envelope.cpp \
           src/transport/tcp/client.cpp \
           src/transport/tcp/server.cpp \
+          src/transport/http/client.cpp \
+          src/transport/http/server.cpp \
           src/transport/udp/sender.cpp \
           src/transport/udp/receiver.cpp
 
-HEADERS = include/glove/glove.hpp \
+HEADERS = include/codec/glove_json.hpp \
+          third_party/nlohmann/json.hpp \
+          include/glove/glove.hpp \
           include/cli/parser.hpp \
           include/mock.hpp \
           include/glove/pair.hpp \
@@ -37,6 +42,9 @@ HEADERS = include/glove/glove.hpp \
           include/transport/udp/detail/udp_envelope.hpp \
           include/transport/tcp/client.hpp \
           include/transport/tcp/server.hpp \
+          include/transport/http/client.hpp \
+          include/transport/http/server.hpp \
+          third_party/cpp-httplib/httplib.h \
           include/transport/detail/socket.hpp \
           include/transport/tcp/detail/framing.hpp \
           include/transport/udp/sender.hpp \

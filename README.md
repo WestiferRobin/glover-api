@@ -11,12 +11,15 @@ Secondary → Primary → Client
 
 Secondary represents one physical glove. Primary combines its local hand with
 Secondary's hand, and Client receives and validates ten-finger snapshots.
-Local simulation, two-node TCP, and three-node TCP/UDP are implemented.
+Local simulation, two-node TCP/HTTP, three-node TCP/UDP, mixed TCP/UDP-to-HTTP
+relays, and direct individual HTTP submissions are implemented. In direct HTTP
+mode both gloves send to Client, which pairs received snapshots by index.
 Each simulation uses five mock samples; each glove has five fingers, and each
 combined snapshot has ten values. Physical hardware integration remains future work.
 
 [Build and Run](#build-and-run) · [Network Simulation](#network-simulation) ·
 [Manual Verification](#manual-verification) ·
+[HTTP Manual Verification](#http-manual-verification) ·
 [Glove Models](#glove-models) · [State Serialization](#state-serialization) ·
 [Chord Dictionary](#chord-dictionary) · [Team Integration](#team-integration)
 
@@ -27,7 +30,9 @@ combined snapshot has ten values. Physical hardware integration remains future w
 - On macOS, installed and selected Apple developer tools providing `c++` and
   `xcrun`. The Makefile selects their SDK through `SDKROOT`.
 
-macOS with Apple Clang and localhost networking is verified. Linux is unverified;
+The TCP/UDP workflow on macOS with Apple Clang and localhost networking is verified.
+The HTTP API and all documented desktop simulation modes were manually verified
+on macOS on November 13, 2026. Linux is unverified;
 Windows and ESP32 support are not implemented.
 
 ## Build and Run
@@ -41,8 +46,11 @@ make
 make run
 ```
 
-`make` builds `build/glove` with C++20, `-Wall -Wextra -Wpedantic`, and no
-third-party libraries. `make run` builds when needed and runs the local mock.
+`make` builds `build/glove` with C++20, `-Wall -Wextra -Wpedantic`, and `-pthread`.
+HTTP uses vendored, header-only **cpp-httplib v0.66.0** under
+`third_party/cpp-httplib/`, with its MIT license and version/hash record.
+No package installation is required. HTTP JSON uses vendored nlohmann/json v3.12.0 (MIT); TLS and compression are not enabled.
+`make run` builds when needed and runs the local mock.
 An unchanged build does not recompile. Select another compiler with
 `make CXX=clang++`. To remove the executable, run `make clean`.
 
@@ -230,13 +238,381 @@ sequence. `Connection refused` usually means the TCP listener was not ready;
 process or choose unused ports. A UDP timeout during manual startup means you
 should restart the complete sequence and launch the senders before the deadline.
 
+## HTTP Manual Verification
+
+The HTTP API foundation and two-node combined Primary HTTP simulation are
+implemented, including TCP/UDP-to-HTTP relaying and direct individual HTTP
+submission from both glove nodes. Final desktop verification passed on macOS. ESP32 communication
+is not verified.
+
+The application JSON adapter uses pinned, header-only nlohmann/json v3.12.0
+(MIT), under `third_party/nlohmann/`; its README records provenance and hashes.
+TCP/UDP text codecs are unchanged. Generic HTTP transport does not parse JSON.
+
+Final verification on November 13, 2026 used a clean warning-free build and
+independent Glover processes with bounded supervision. All seven network modes,
+both physical-hand assignments, direct sender ordering/concurrency, and local
+mock commands passed byte-for-byte comparisons against the five expected lines.
+Health/state/role GETs, manual POST, curl headers, strict JSON/query validation,
+duplicate/conflict rejection, missing samples, malformed responses, read timeout,
+non-204 acknowledgments without retry, bind conflicts, final acknowledgments,
+automatic completion, SIGINT/SIGTERM, terminal Ctrl-C and IPv4 port reuse passed.
+No source corrections were needed in the final pass. Temporary check scripts
+were outside the repository; there is no committed automated test suite.
+
+Not exercised: Linux/Windows/ESP32, connection-establishment timeout to an
+unreachable network, or an intentionally failing application handler producing
+500. Controlled 500 responders did verify sender rejection. TCP still has no
+receive deadline; UDP callbacks may extend deadline cleanup while HTTP completes.
+An HTTP acknowledgment confirms in-memory acceptance, not durable delivery.
+
+### API contract
+
+| Request | Result |
+|---|---|
+| GET `/health` | 200, `{"status":"ok"}`, independent of glove availability |
+| GET `/gloves` | 200 with latest complete `{index,left,right}`, or 204 if unavailable |
+| GET `/gloves?role=primary` | 200 with latest `{role,hand,index,fingers}`, or 204 |
+| GET `/gloves?role=secondary` | Same for Secondary |
+| POST `/gloves` | 204 with empty body after acceptance |
+
+JSON responses use `application/json`. GET never consumes samples. Latest means
+highest accepted index for a role, and highest complete index for combined GET;
+an incomplete newer pair never replaces the latest completed pair.
+
+Individual payload (either role is allowed):
+
+```json
+{"role":"secondary","hand":"left","index":0,"fingers":[1,0,0,0,0]}
+```
+
+Combined payload (`hand` identifies Primary's physical hand):
+
+```json
+{"role":"primary","hand":"right","index":0,"left":[1,0,0,0,0],"right":[0,0,0,0,1]}
+```
+
+Every payload requires exactly the fields shown for its shape. Indices are
+integers 0–4. Finger arrays contain exactly five integer 0/1 values; booleans,
+floats, strings and nulls are rejected. Unknown/missing fields, duplicate JSON
+keys, mixed shapes, invalid roles/hands and malformed JSON return 400.
+Combined submissions require Primary role. POST requires `application/json`,
+optionally `charset=utf-8` (quoted charset is also accepted); otherwise 415.
+
+Client defaults to `--submission combined`. Use `--submission individual` for
+separate role submissions. Wrong-mode submissions, conflicting role-to-hand
+mappings and duplicate role/index or combined indices return 409 without mutation.
+The first accepted submission locks the role mapping. Either hand can be Primary.
+Individual states pair only at matching indices; out-of-order arrivals are allowed.
+
+Role queries accept exactly one valid role parameter; unknown, empty, repeated
+or malformed filters return 400. POST and health do not accept query parameters.
+Unknown routes return 404, unsupported methods on known routes return 405.
+Expected request errors leave the server available and accepted state unchanged.
+
+### Two-terminal API inspection
+
+Run from the repository root after `make`. All following commands are API-level
+checks; they do not launch HTTP glove senders.
+
+**Terminal 1 — Client:**
+
+```sh
+./build/glove client --transport http --bind 127.0.0.1 --port 9000 --submission combined --timeout-ms 30000 --stay-open true
+```
+
+Wait for `HTTP Client listening on 127.0.0.1:9000` on stderr.
+
+**Terminal 2 — Inspect and submit:**
+
+```sh
+./build/glove http get --host 127.0.0.1 --port 9000 --path /health
+./build/glove http get --host 127.0.0.1 --port 9000 --path /gloves
+./build/glove http post --host 127.0.0.1 --port 9000 --path /gloves --content-type application/json --body '{"role":"primary","hand":"right","index":0,"left":[1,0,0,0,0],"right":[0,0,0,0,1]}'
+./build/glove http get --host 127.0.0.1 --port 9000 --path /gloves
+./build/glove http get --host 127.0.0.1 --port 9000 --path '/gloves?role=primary'
+./build/glove http get --host 127.0.0.1 --port 9000 --path '/gloves?role=secondary'
+```
+
+Expected statuses: 200, 204, 204, 200, 200, 200. Health returns `{"status":"ok"}`;
+204 responses are empty. State GETs report index 0, with Primary right and
+Secondary left. JSON key ordering is not contractual.
+
+For independent inspection use `curl -i http://127.0.0.1:9000/health`.
+Negative compatibility checks only: `curl -i http://127.0.0.1:9000/test` and
+`curl -i -X POST http://127.0.0.1:9000/test` must both return 404.
+
+Generic `http get/post` print the exact body to stdout with no added newline,
+and `HTTP <status>` to stderr. Complete responses, including 4xx/5xx, exit 0;
+argument/transport failures exit 1. Inspect the status as well as `echo $?`.
+The old demo-server command has been removed without an alias.
+
+### Two-node HTTP glove simulation
+
+Verified on macOS: both Primary-hand assignments, exact Client output, health
+and role GETs, clean signal shutdown, automatic completion, and immediate IPv4
+port reuse. Controlled responders verified rejection of 200/400/409/415/500
+without retry; unavailable-server and unsupported-option checks also passed.
+
+Client is the HTTP server; Primary uses its owned GlovePair and the five shared
+mock fixtures to send sequential combined JSON submissions to `POST /gloves`.
+Primary waits for HTTP 204 before continuing. Any other status (including 200)
+or transport error stops the sender with exit 1, sample index and destination
+context. There are no automatic retries. Successful Primary stdout/stderr are empty.
+
+**Terminal 1 — Start a fresh Client session:**
+
+```sh
+./build/glove client --transport http --bind 127.0.0.1 --port 9000 --submission combined --timeout-ms 30000 --stay-open true
+```
+
+Wait for the readiness message. **Terminal 2:**
+
+```sh
+./build/glove http get --host 127.0.0.1 --port 9000 --path /health
+./build/glove primary --transport http --hand right --peer 127.0.0.1 --port 9000 --submission combined
+echo $?
+./build/glove http get --host 127.0.0.1 --port 9000 --path /gloves
+./build/glove http get --host 127.0.0.1 --port 9000 --path '/gloves?role=primary'
+./build/glove http get --host 127.0.0.1 --port 9000 --path '/gloves?role=secondary'
+```
+
+Expect health 200, Primary exit 0, and all state GETs 200 at index 4. Primary
+maps to right and Secondary to left. Client prints exactly:
+
+```text
+[1,0,0,0,0,0,0,0,0,1]
+[0,1,0,0,0,0,0,0,1,0]
+[0,0,1,0,0,0,0,1,0,0]
+[1,0,1,0,0,0,0,0,1,0]
+[1,1,1,1,1,1,1,1,1,1]
+```
+
+Stop Client with Ctrl-C; expect exit 0 after this complete session. Start a new
+Client session and repeat with Primary `--hand left`. Output stays identical;
+role GETs now map Primary to left and Secondary to right. Do not reuse the
+completed session: duplicate indices are rejected. Primary defaults to right
+and combined submission. Select individual submission explicitly for direct mode;
+relays require combined submission. Receiver timeout options apply only when
+Primary has UDP upstream.
+
+Use `--stay-open false` on Client for automatic exit after the fifth sample.
+This is desktop mock simulation; hardware is unverified.
+
+### Three-node TCP/UDP-to-HTTP relay
+
+Verified on macOS with independent processes: both upstream transports and both
+hand assignments, exact five-state output, health/state/role GETs, clean shutdown
+and IPv4 port reuse. Reordered UDP input retained correct indices. Negative checks
+covered malformed/wrong-hand input, early/incomplete TCP EOF, a sixth TCP sample,
+UDP duplicates/invalid indices/missing samples, downstream rejection/unavailability,
+Client stopping during forwarding, and non-204 responses without retry. Existing
+three-node TCP/UDP scenarios with both hands and two-node HTTP also passed.
+
+Client is the only HTTP server. Primary receives the unchanged Secondary wire
+format, combines it with its corresponding local fixture using its owned pair,
+and forwards combined JSON to `POST /gloves`. Direct individual HTTP sending is
+a separate mode described below. No new endpoint or transport framing is used.
+
+Run each command in a separate terminal, in this order. Use a fresh Client
+session for each transport and hand assignment.
+
+**Terminal 1 — Client (both relay types):**
+
+```sh
+./build/glove client --transport http --bind 127.0.0.1 --port 9000 --submission combined --timeout-ms 30000 --stay-open true
+```
+
+Wait for `HTTP Client listening on 127.0.0.1:9000` on stderr.
+
+**Terminal 2 — TCP-to-HTTP Primary:**
+
+```sh
+./build/glove primary --transport http --upstream-transport tcp --hand right --bind 127.0.0.1 --listen-port 9001 --peer 127.0.0.1 --port 9000 --submission combined
+```
+
+Primary waits silently. Its TCP receiver has no application readiness callback.
+From Terminal 3, confirm its bound listener with
+`lsof -nP -iTCP:9001 -sTCP:LISTEN`; check the process is `glove`, not another
+service. Do not probe by connecting: TCP accepts only one connection.
+
+**Terminal 3 — TCP Secondary:**
+
+```sh
+./build/glove secondary --transport tcp --hand left --peer 127.0.0.1 --port 9001
+```
+
+For UDP-to-HTTP, start a fresh Client, then use:
+
+```sh
+# Terminal 2 — UDP-to-HTTP Primary
+./build/glove primary --transport http --upstream-transport udp --hand right --bind 127.0.0.1 --listen-port 9001 --peer 127.0.0.1 --port 9000 --submission combined --timeout-ms 30000
+```
+
+Confirm Primary's bound UDP socket from Terminal 3 with
+`lsof -nP -iUDP:9001`, then run:
+
+```sh
+# Terminal 3 — UDP Secondary
+./build/glove secondary --transport udp --hand left --peer 127.0.0.1 --port 9001
+```
+
+Repeat each scenario with Primary `--hand left` and Secondary `--hand right`.
+All endpoint options remain unchanged. Client must print the same five snapshots
+shown above, exactly once in index order. Primary and Secondary stdout/stderr
+remain empty on success. Run `echo $?` immediately after each exits; expect 0.
+
+After Secondary finishes, inspect from Terminal 3:
+
+```sh
+./build/glove http get --host 127.0.0.1 --port 9000 --path /health
+./build/glove http get --host 127.0.0.1 --port 9000 --path /gloves
+./build/glove http get --host 127.0.0.1 --port 9000 --path '/gloves?role=primary'
+./build/glove http get --host 127.0.0.1 --port 9000 --path '/gloves?role=secondary'
+```
+
+All return HTTP 200 and exit 0; state responses identify index 4. Role responses
+identify the configured physical hands. Stop the completed Client with Ctrl-C;
+expect exit 0. Check Glover no longer owns the listeners before starting again.
+An unrelated service can occupy a port after Glover stops; select isolated ports
+when verifying connection refusal.
+
+`--transport` selects outbound delivery. Explicit `--upstream-transport tcp|udp`
+is supported only for HTTP Primary with both `--bind` and `--listen-port`.
+HTTP relay requires it; omitting all inbound options retains two-node HTTP.
+Existing TCP/UDP commands keep their original implicit same-transport behavior.
+Explicit TCP-to-UDP/UDP-to-TCP routing and HTTP upstream are not supported.
+
+TCP assigns HTTP indices by accepted sample order and still requires exactly
+five valid frames followed by clean EOF. It rejects malformed/wrong-hand states,
+early EOF, incomplete frames, and extra samples. It can wait indefinitely for
+upstream EOF: Client's HTTP deadline does not cancel TCP reception. Client may
+already have accepted all five states before Primary rejects a sixth frame;
+check every process's exit status.
+
+UDP preserves the original U1 index, pairs against that indexed local fixture,
+and rejects duplicates. Its total receive deadline includes time spent forwarding
+HTTP requests; callbacks cannot be interrupted by that deadline. A slow HTTP
+request can therefore delay timeout reporting. Missing-index diagnostics refer
+to samples not successfully forwarded. Client buffers indexed states, so arrival
+order does not change output. UDP transport still provides no delivery guarantee.
+
+HTTP forwarding requires 204; any other status or transport failure stops the
+relay without retry. Errors identify reception/relay context and HTTP sample and
+destination when forwarding failed. Secondary send success is not an end-to-end
+acknowledgment. Partial delivery does not make Primary successful.
+
+### Direct Primary and Secondary HTTP
+
+Focused macOS verification passed for both hand assignments with Primary-first,
+Secondary-first and concurrent senders. Exact output and GET inspection, both
+shutdown modes, incomplete-session timeout, duplicate/conflict rejection and port
+reuse were checked. Both senders rejected non-204, malformed and stalled responses
+without retries. Combined HTTP and both mixed relays also passed focused checks.
+
+Both nodes independently POST individual states to the same Client. Primary
+updates only its assigned hand in its existing pair; Secondary uses its existing
+glove. Client stores received snapshots and pairs matching indices without owning
+another GlovePair. No TCP/UDP relay is involved.
+
+**Terminal 1 — Fresh individual-mode Client:**
+
+```sh
+./build/glove client --transport http --bind 127.0.0.1 --port 9000 --submission individual --timeout-ms 30000 --stay-open true
+```
+
+Wait for actual Client readiness. **Terminal 2 — Primary:**
+
+```sh
+./build/glove primary --transport http --hand right --peer 127.0.0.1 --port 9000 --submission individual
+echo $?
+```
+
+Primary sends five payloads such as:
+
+```json
+{"role":"primary","hand":"right","index":0,"fingers":[0,0,0,0,1]}
+```
+
+Expect exit 0, empty stdout/stderr. Client has no complete batch yet and prints
+nothing. GET `/gloves` returns 204 while Primary role GET returns index 4.
+
+**Terminal 3 — Secondary:**
+
+```sh
+./build/glove secondary --transport http --hand left --peer 127.0.0.1 --port 9000
+echo $?
+```
+
+Secondary always sends individual states; it does not accept `--submission`.
+Expect exit 0 with empty stdout/stderr. Client now prints the same five canonical
+snapshots shown in the two-node section, exactly once in index order.
+
+Inspect from either sender terminal:
+
+```sh
+./build/glove http get --host 127.0.0.1 --port 9000 --path /health
+./build/glove http get --host 127.0.0.1 --port 9000 --path /gloves
+./build/glove http get --host 127.0.0.1 --port 9000 --path '/gloves?role=primary'
+./build/glove http get --host 127.0.0.1 --port 9000 --path '/gloves?role=secondary'
+```
+
+All return 200, state responses identify index 4, Primary is right and Secondary
+left. Stop Client with Ctrl-C; completed session exits 0. Start a fresh Client and
+repeat with Primary `--hand left` and Secondary `--hand right`; physical output
+is identical and role GETs reflect the reversed assignment.
+
+Either sender may finish first, or both may run concurrently. An individual POST
+returns 204 on acceptance without waiting for the other glove. Sender success
+alone does not prove that the other role arrived. A missing role causes Client's
+finite session deadline to fail with exit 1 and no partial batch output.
+
+Use a fresh session for each run. Duplicates and role/hand conflicts return 409
+without overwriting valid state. Combined requests in individual mode and
+individual requests in combined mode are rejected. Both senders require 204;
+other statuses, refused connections, timeouts and malformed responses cause
+exit 1 with sample/destination diagnostics and no retry.
+
+`--stay-open true` permits GET inspection after completion. `--stay-open false`
+automatically drains the final acknowledgment and exits after all five pairs.
+No additional endpoints, fixtures, dependencies or hardware support are involved.
+
+### Session completion and shutdown
+
+Index 0 alone does not complete the simulation. Submit all five existing fixture
+states at indices 0–4 to complete it. Client buffers received states and prints
+one complete batch, exactly once in index order, using the canonical serializer.
+It does not compare submitted values against fixtures or invent missing values.
+No incomplete batch is printed. In individual mode both roles must arrive for
+all five indices; one role's acknowledgment does not confirm a complete pair.
+
+The finite receive deadline defaults to 30000 ms from HTTP execution startup;
+GETs and rejected requests do not reset it. Missing samples or stopping an
+incomplete session cause exit 1 with missing-index diagnostics. Increase
+`--timeout-ms` for leisurely interactive inspection. Restart for a new batch.
+
+`--stay-open true` is the default: after completion the deadline is disabled,
+GET inspection remains available, and Ctrl-C or SIGTERM stops the process with
+exit 0. `--stay-open false` closes automatically after the complete batch,
+draining active responses and joining workers. Bind/listener failures exit 1.
+No non-signal-safe work runs in a signal handler. Confirm port release with
+`lsof -nP -iTCP:9000 -sTCP:LISTEN` (no output, exit 1 when no listener exists).
+
+Limits remain plain HTTP, numeric IPv4 server binding, 1 MiB request body,
+5-second server I/O timeouts, multipart rejection, and the library's 8 KiB form
+limit. The generic client uses 5-second connection/read/write timeouts and a
+15-second request budget; DNS timing is platform-dependent. No automatic retries
+or redirects occur. Lost acknowledgments may follow accepted data. There is no
+authentication, persistent history, live sensor synchronization or production
+session protocol. Desktop verification does not establish wireless or hardware performance.
+
 ## Architecture
 
 | Module | Responsibility | Entry points |
 |---|---|---|
 | `glove/` | Glove models and finger states | `include/glove/glove.hpp`, `include/glove/pair.hpp` |
 | `nodes/` | Primary, Secondary, Client execution | `include/nodes/primary.hpp`, `secondary.hpp`, `client.hpp`, `node.hpp` |
-| `transport/` | TCP, UDP, sockets, framing, serialization | `include/transport/tcp/`, `include/transport/udp/`, `include/transport/detail/state_codec.hpp` |
+| `transport/` | TCP, UDP, HTTP, sockets, framing, serialization | `include/transport/tcp/`, `include/transport/udp/`, `include/transport/http/`, `include/transport/detail/state_codec.hpp` |
 | `cli/` | Argument parsing and configuration | `include/cli/parser.hpp`, `src/cli/parser.cpp` |
 
 Implementations live under the corresponding `src/` directories.
@@ -251,7 +627,9 @@ roles: Secondary connects to Primary, and Primary connects to the listening Clie
 
 C++ callers can use `Primary(Hand hand = Hand::Right)` locally or
 `Primary(hand, peer, port)` for two-node TCP. The relay constructor takes
-`hand, bindAddress, listenPort, peer, port, transport, timeout`.
+`hand, bindAddress, listenPort, peer, port, transport, timeout, inbound`.
+The optional inbound selection defaults to absent for existing call sites; HTTP
+relay callers provide TCP or UDP explicitly.
 Transport defaults to `NodeTransport::Tcp`; the shared UDP timeout default is
 declared in `include/nodes/network.hpp`.
 
