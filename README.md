@@ -46,6 +46,27 @@ The executable is `build/glove`. `make` builds with C++20, warnings enabled, and
 build does not recompile. To select another compiler, use `make CXX=clang++`.
 `make run` builds when needed and runs the default simulation.
 
+## Testing
+
+Run from the repository root:
+
+```bash
+make test-unit         # Socket-free C++ model, codec, framing, mock and parser tests
+make test-integration  # Loopback transport, HTTP API, CLI and node workflow tests
+make test              # Both suites; run before pushing
+```
+
+The targets build their required executables. Tests need no physical gloves,
+ESP32 devices, external services, or Python packages. In addition to the build
+tools above, integration tests require Python 3, `lsof`, and local IPv4 networking.
+macOS is locally verified; other platforms are not yet verified.
+
+Tests live in `tests/unit/`, `tests/integration/`, and `tests/fixtures/`.
+[Automated testing guidance](docs/testing.md#automated-testing) covers adding
+cases, interpreting failures, prerequisites, and CI. GitHub Actions is configured
+to run `make test` on branch pushes and pull requests; remote execution remains
+to be verified after the workflow is pushed.
+
 ## Quickstart
 
 ```bash
@@ -114,7 +135,7 @@ validation, responses, submission modes, and session lifecycle.
 | [HTTP API](docs/api.md) | Endpoints, JSON contracts, response codes, HTTP sessions |
 | [CLI](docs/cli.md) | Commands, options, defaults, output and exit behavior |
 | [Protocols](docs/protocols.md) | Text serialization, TCP/UDP framing and transport semantics |
-| [Testing](docs/testing.md) | Reproducible manual verification, expected output, evidence |
+| [Testing](docs/testing.md) | Automated tests, contributor guidance, manual verification and evidence |
 | [Integration](docs/integration.md) | Team boundaries, dictionary, ESP32/recognition/keyboard decisions |
 
 ## Team integration

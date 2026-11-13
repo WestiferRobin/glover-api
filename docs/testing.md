@@ -1,11 +1,203 @@
-# Manual verification
+# Testing and manual verification
 
-This is the reproducible desktop verification guide. It covers local simulation,
+This guide covers automated regression tests and reproducible manual desktop
+verification. It covers local simulation,
 TCP/UDP pipelines, HTTP combined and individual delivery, mixed relays, endpoint
 validation, and lifecycle checks. These procedures do not prove ESP32 acquisition,
 live streaming, recognition, or keyboard output. Contracts remain in
 [architecture](architecture.md), [protocols](protocols.md), [API](api.md), and
 [CLI](cli.md). Integration boundaries are in [integration](integration.md).
+
+## Automated testing
+
+### Commands and requirements
+
+From the repository root:
+
+```bash
+make test-unit
+make test-integration
+make test
+```
+
+`make test-unit` builds and runs `build/test-unit`. `make test-integration` builds
+`build/glove` and `build/test-transport`, then runs Python unittest discovery.
+`make test` runs the unit suite followed by integration tests, including with
+parallel Make invocation. Any failing suite returns a nonzero Make exit status.
+`make clean` removes the three managed executables; it does not remove fixtures.
+
+Run `make test` before pushing. An unchanged build reuses its binaries. Following
+compiler or compiler-flag changes, run `make clean` before rebuilding: Make does
+not track command-line flag values as file dependencies.
+
+Required tools are a C++20 compiler, Make, selected Apple developer tools/`xcrun`
+on macOS, Python 3, and `lsof`. Tests use POSIX processes, signals, pthreads, and
+IPv4 loopback sockets. Python uses only the standard library. No gloves, ESP32,
+database, cloud service, elevated privileges, or external internet connection is
+needed to execute the local suite. Dependencies are already vendored.
+
+The locally verified environment is macOS 27.2 on arm64, Apple Clang 21.0.0,
+GNU Make 3.81, and Python 3.12.0. This does not establish Linux, Windows, ESP32, or
+GitHub-hosted runner success. CI prints its own actual tool versions. A missing
+`lsof` is a prerequisite failure, not a reason to skip network tests.
+
+### Test architecture and ownership
+
+```text
+tests/
+├── unit/         # C++ tests selectively mirror production components
+├── integration/  # Python tests group observable process/network behavior
+└── fixtures/     # Independent expected-output oracle
+```
+
+The small C++ runner uses explicit suite functions and named cases. Assertions
+remain enabled under `NDEBUG`; failures include source locations and expected
+versus actual values. Each case reports PASS/FAIL and failures do not prevent
+unrelated cases from running. Unit tests cover Glove, GlovePair, mock samples,
+text and JSON codecs, UDP envelopes, TCP framing, and CLI parsing without opening
+network sockets. Linking node/transport code for parser construction does not
+execute the nodes.
+
+Integration ownership is:
+
+| Module under `tests/integration/` | Responsibility |
+|---|---|
+| `transport/test_tcp.py` | TCP wrappers, frames, EOF, connection failures and lifecycle |
+| `transport/test_udp.py` | UDP wrappers, datagram boundaries, limits and receive deadlines |
+| `transport/test_http.py` | Generic HTTP wrappers, bodies, metadata, statuses and shutdown |
+| `test_http_api.py` | Application endpoints, validation, pairing, mapping, completion and concurrency |
+| `test_cli.py` | Executable dispatch, diagnostics, stdout/stderr and exit behavior |
+| `test_workflows.py` | All seven network paths with both hands; node failures, signals and cleanup |
+
+`transport/transport_driver.cpp` invokes the production transport wrappers; it
+does not implement the glove API. `support.py` owns process supervision and
+bounded readiness. Generic transport behavior, application session validation,
+and workflow success are separate contracts. TCP Client accepts clean EOF without
+requiring five samples; UDP provides no delivery guarantee. Workflow tests check
+exact output and every participating process exit rather than trusting Client
+success alone.
+
+Discovery includes all six modules through regular Python packages:
+
+```bash
+python3 -B -m unittest discover -s tests/integration -t tests -p 'test_*.py' -v
+```
+
+Run `make test-integration` first when binaries need building. `-B` avoids writing
+bytecode into the source tree. Do not remove package markers or change test file
+names away from `test_*.py` without verifying discovery.
+
+### Fixtures and isolation
+
+[expected_mock.txt](../tests/fixtures/expected_mock.txt) is the independent,
+five-line expected-output oracle. Production inputs remain in `mockSamples()`;
+unit tests check their values and formatting against the oracle. Do not generate
+expected values using the serializer being tested or create another copy of the
+mock definitions. Keep small malformed/asymmetric inputs beside their tests.
+
+The unit executable receives an absolute fixture-directory argument from Make.
+Python resolves paths from `Path(__file__).resolve()`. Every network test owns
+fresh processes and available loopback ports; completed HTTP sessions are not
+reused across independent tests. Port discovery has a small bind race, so tests
+run sequentially and report collisions rather than retry correctness assertions.
+TCP/UDP readiness uses PID-scoped `lsof`, never a TCP connection that would consume
+the single accepted session. HTTP uses health polling or the driver's readiness
+notification. Cleanup terminates/reaps only owned children; tests also verify
+socket release and actual port reuse. Normal TCP `TIME_WAIT` is not an orphaned
+listener.
+
+### Adding a unit test
+
+Add a named case inside the appropriate existing suite function, for example
+inside `test::glove(Runner& runner)` in `tests/unit/glove/test_glove.cpp`:
+
+```cpp
+runner.run("Glove_ThumbCanBeCleared", [] {
+    Glove glove(Hand::Right, GloveRole::Primary);
+    glove.setFinger(Finger::Thumb, true);
+    test::equal(glove.getFinger(Finger::Thumb), true);
+    glove.setFinger(Finger::Thumb, false);
+    test::equal(glove.getFinger(Finger::Thumb), false);
+});
+```
+
+Use `test::equal(actual, expected)`, `test::check(condition, description)`, and
+`test::throws<std::invalid_argument>(operation)` as appropriate. Use independent
+literal expectations, not only encoder/decoder round trips. For a new component
+file, add its source to `UNIT_SOURCES` in Makefile, declare its suite in
+`test_support.hpp`, and invoke it from `test_main.cpp`. Include its required
+production headers; do not add a second `main()`.
+
+### Adding an integration test
+
+Add a `test_` method to the appropriate existing `NetworkTest` subclass. This
+example uses the actual support API and checks exact CLI failure behavior:
+
+```python
+from integration.support import GLOVE, NetworkTest
+
+
+class ExampleCliTests(NetworkTest):
+    def test_incomplete_http_get_arguments(self):
+        process = self.start(GLOVE, "http", "get").wait(expected=1)
+        self.assertEqual(process.stdout, b"")
+        self.assertEqual(process.stderr, b"Error: Missing required HTTP option: --host\n")
+```
+
+In the repository, put this method in the existing CLI class rather than creating
+an example-only module. Use `self.start`/`self.driver` for owned children and the
+existing readiness helpers for listeners. Keep endpoint and workflow assertions
+in their owning modules. Do not add shell-based process launchers, fixed ports,
+fixed readiness sleeps, or automatic assertion retries.
+
+Every new behavior should have an appropriate automated test: sensor conversion,
+recognition, and keyboard translation belong in deterministic unit tests;
+ESP32 communication and a keyboard adapter need integration tests. A physical
+hardware demonstration must be separately identified and opt-in unless the team
+explicitly changes the default suite's hardware-independent contract. Create
+new directories only when the corresponding modules exist.
+
+### Diagnosing failures
+
+- C++ FAIL lines identify the named case, source location, and mismatched values
+  or exception category. Assertions remain active in release-style builds.
+- Python failures identify the test/subtest and assertion. Process failures add
+  the command, PID, exit status, captured stdout and stderr, and expected exit.
+- HTTP status mismatches include the request and response where asserted. Generic
+  HTTP CLI responses can exit 0 for 4xx/5xx; node senders require HTTP 204.
+- Readiness/process/request timeouts are bounded. Check the captured diagnostic,
+  receiver startup, and configured session budget before changing a deadline.
+- A bind collision is not evidence of a protocol failure. Inspect the owner using
+  `lsof`; never kill unrelated processes or mask the failure with blind retries.
+- Cleanup failures are test failures. Look for an unreaped child or owned socket;
+  do not confuse `TIME_WAIT` with an active TCP listener.
+
+Reproduce with the matching Make target, then run `make test` after correcting
+the cause. A repeatable production defect needs its own reviewed fix; do not
+weaken expected output or statuses to obtain a passing suite.
+
+### Continuous integration
+
+[.github/workflows/tests.yml](../.github/workflows/tests.yml) runs one job on
+`macos-15` for pushes to every branch (including `master` and `member/wes`) and
+pull requests, without path filters. Tag-only pushes are not configured.
+It uses checkout `v7.0.1`, read-only repository contents permission, and does not
+persist checkout credentials. No user-provided secrets or package installations
+are required.
+
+The job prints tool versions, requires `c++`, Make, Python 3, `lsof`, and `xcrun`,
+then runs only `make test` as the build/test entry point. The job has a 15-minute
+upper bound; test deadlines are unchanged. Failures fail the job, and the existing
+runner diagnostics remain in the GitHub Actions logs. There is no matrix,
+`continue-on-error`, or test retry mechanism.
+
+Runner/action availability was checked against GitHub's
+[supported images](https://github.com/actions/runner-images#available-images) and
+[checkout release](https://github.com/actions/checkout/releases/tag/v7.0.1).
+Local YAML/structure/shell validation is separate from executing GitHub Actions.
+Remote CI has not yet been verified: after review, commit and push the complete
+testing milestone, then inspect the first workflow run. Reproduce failures
+locally with `make test` and compare the logged tool versions.
 
 ## Prerequisites and build
 
@@ -25,8 +217,9 @@ make
 
 Expect successful compilation and exit 0. The executable is `build/glove`.
 Optional diagnostic tests below use `curl` and macOS `lsof`; packet injection
-requires an independently available tool, not a Glover command. No new test
-scripts or dependencies are supplied by this guide.
+requires an independently available tool, not a Glover command. The procedures
+below remain manual; the automated suite above supplies separate executable
+regression checks.
 
 ## Terminals, readiness, and exit codes
 
@@ -652,8 +845,40 @@ No new personally observed multi-terminal manual PASS or hardware PASS is claime
 
 For future runs record commit, platform, date, hands, actual stdout/stderr,
 all exit codes, endpoint/port checks, and whether execution was manual or
-scripted. Rerun relevant checks after behavioral changes; this repository still
-has no committed automated test suite.
+scripted. Rerun relevant checks after behavioral changes. The earlier checkpoint
+had no permanent test harness; the current suite is described under
+[automated testing](#automated-testing).
+
+### Automated testing milestone — November 13, 2026
+
+The permanent suite was executed locally against production HEAD `b9f7653`
+with the testing milestone still pending review and commit. The local toolchain
+is recorded under [automated testing](#commands-and-requirements).
+
+- Clean application, unit-runner, and transport-driver builds passed without
+  compiler warnings. `make test-unit`, `make test-integration`, and `make test`
+  all passed.
+- Each complete run executed 463 named C++ cases and 106 Python test methods:
+  all passed, zero failed, zero skipped. Python parameterized subtests are not
+  counted separately. All six integration modules were discovered.
+- All fourteen network workflows passed, with both physical-hand assignments,
+  exact five-line output, every process exit checked, and port release/reuse.
+  API, CLI, malformed-input, relay-failure, timeout, signal, and focused
+  concurrency checks also passed. No test-owned node/driver processes remained.
+- Three consecutive full-suite repeats took 53.5, 53.5, and 53.8 seconds with
+  binaries already built. The third used `make -j4 test`; suites remained
+  sequential. No retries were used. Fresh compilation adds build time; these
+  local timings are not a hosted-runner performance guarantee.
+- Standalone Python discovery also passed all 106 tests. Both contributor code
+  examples above were executed successfully. Isolated temporary exit probes
+  confirmed Make failure propagation and aggregate early stop, then were removed.
+- Workflow YAML, duplicate keys, expected structure, permissions, triggers,
+  action/runner selection, and shell syntax were checked locally. The tool-check
+  step ran locally. GitHub-hosted execution has **not** occurred; verify the first
+  remote run after committing and pushing the complete milestone.
+
+These automated results supplement the historical manual records; they do not
+claim new physical-glove, ESP32, recognition, keyboard, Linux, or Windows results.
 
 ## Troubleshooting
 

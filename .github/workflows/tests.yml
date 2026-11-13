@@ -1,0 +1,35 @@
+name: Glover tests
+
+'on':
+  push:
+    branches: ['**']
+  pull_request: {}
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: macOS unit and integration tests
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify build and test tools
+        shell: bash
+        run: |
+          for tool in c++ make python3 lsof xcrun; do
+            command -v "$tool"
+          done
+          sw_vers
+          uname -m
+          c++ --version
+          make --version
+          python3 --version
+          xcrun --sdk macosx --show-sdk-path
+      - name: Run complete regression suite
+        shell: bash
+        run: make test
