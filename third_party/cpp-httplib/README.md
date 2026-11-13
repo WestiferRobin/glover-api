@@ -13,7 +13,8 @@ Both upstream files are unmodified. SHA-256:
 4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b  LICENSE
 ```
 
-The Makefile supplies the include path and `-pthread`. No optional TLS,
-compression, or JSON dependency is enabled. Future HTTP server code should use
-this same pinned dependency. Dependency updates should replace the upstream
-header and license together and refresh the version and hashes here.
+The Makefile supplies the include path and `-pthread`. Both generic HTTP client
+and server use this pinned dependency. Optional TLS and compression are disabled.
+Glove JSON parsing is separate application code using the dependency documented
+in [nlohmann/json](../nlohmann/README.md). Dependency updates should replace the
+upstream header and license together and refresh the version and hashes here.
