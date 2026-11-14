@@ -16,6 +16,9 @@ class Secondary : public Node {
     std::string udpPeer;
     std::uint16_t udpPort = 0;
 
+    std::string httpPeer;
+    std::uint16_t httpPort = 0;
+    void runHttp();
     void runTcp();
     void runUdp();
 

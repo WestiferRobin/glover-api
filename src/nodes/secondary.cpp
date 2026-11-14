@@ -1,5 +1,7 @@
 #include <nodes/secondary.hpp>
 #include <mock.hpp>
+#include <codec/glove_json.hpp>
+#include <transport/http/client.hpp>
 #include <iostream>
 #include <transport/detail/state_codec.hpp>
 #include <transport/udp/detail/udp_envelope.hpp>
@@ -18,6 +20,10 @@ Secondary::Secondary(Hand hand, const std::string& peer, std::uint16_t port,
         udpPeer = peer;
         udpPort = port;
         udpMode = true;
+    } else if (transport == NodeTransport::Http) {
+        if (!port) throw std::invalid_argument("HTTP port must be nonzero");
+        httpPeer = peer;
+        httpPort = port;
     } else {
         throw std::invalid_argument("Invalid node transport");
     }
@@ -47,8 +53,27 @@ void Secondary::runTcp() {
     }
 }
 
+void Secondary::runHttp() {
+    const auto& samples = mockSamples();
+    for (std::size_t index = 0; index < samples.size(); ++index) {
+        try {
+            glove.setState(glove.getHand() == Hand::Left ? samples[index].left : samples[index].right);
+            HttpClient client(httpPeer, httpPort);
+            const auto body = glove_json::individual(glove.getRole(), glove.getHand(), index, glove.getState());
+            const auto response = client.post("/gloves", body, "application/json");
+            if (response.status != 204)
+                throw std::runtime_error("expected HTTP 204, received HTTP " + std::to_string(response.status));
+        } catch (const std::exception& error) {
+            throw std::runtime_error("HTTP Secondary sample " + std::to_string(index) + " to " +
+                httpPeer + ':' + std::to_string(httpPort) + ": " + error.what());
+        }
+    }
+}
+
 void Secondary::run() {
-    if (udpMode) {
+    if (httpPort) {
+        runHttp();
+    } else if (udpMode) {
         runUdp();
     } else if (connection) {
         runTcp();
